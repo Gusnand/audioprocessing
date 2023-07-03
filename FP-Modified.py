@@ -1,19 +1,19 @@
-import librosa  # Library untuk pemrosesan audio
-import glob  # Library untuk pencarian file berdasarkan pola
-import numpy as np  # Library untuk manipulasi array
-
-#Keras--> High-level neural networks API, yg berjalan di atas framework deep learning seperti TensorFLow.
-#Library Keras ini memberikan kemudahan dalam build dan training neural network/JST
-from keras.models import Sequential  # Modul Keras untuk model sequential
-from keras.layers import Dense  # Modul Keras untuk layer Dense
-from keras.optimizers import SGD  # Modul Keras untuk optimizer SGD
-from keras.utils import to_categorical  # Modul Keras untuk one-hot encoding
-
-from sklearn.model_selection import train_test_split  # Modul scikit-learn untuk pembagian data train dan test
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score  # Modul scikit-learn untuk evaluasi model
-
-import streamlit as st  # Library untuk membuat aplikasi web interaktif
-
+import matplotlib.pyplot as plt
+import librosa.display
+import os
+import librosa
+import soundfile as sf
+import glob
+import numpy as np
+import warnings
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.optimizers import SGD
+from keras.utils import to_categorical
+from keras.models import save_model, load_model
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+import streamlit as st
 
 def create_model(input_shape, num_classes, num_hidden_layers, num_hidden_neurons, activation):
     """
@@ -41,13 +41,15 @@ def evaluate_model(model, X_test, y_test):
     """
     Mengevaluasi model menggunakan data test dan menghitung metrik evaluasi seperti akurasi, presisi, recall, dan F1-Score.
     """
-    y_pred = np.argmax(model.predict(X_test), axis=1)
-    y_test = np.argmax(y_test, axis=1)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore")
+        y_pred = np.argmax(model.predict(X_test), axis=1)
+        y_test = np.argmax(y_test, axis=1)
 
-    accuracy = accuracy_score(y_test, y_pred)
-    precision = precision_score(y_test, y_pred)
-    recall = recall_score(y_test, y_pred)
-    f1 = f1_score(y_test, y_pred)
+        accuracy = accuracy_score(y_test, y_pred)
+        precision = precision_score(y_test, y_pred, zero_division=1)
+        recall = recall_score(y_test, y_pred)
+        f1 = f1_score(y_test, y_pred)
 
     return accuracy, precision, recall, f1
 
@@ -55,7 +57,7 @@ def preprocess_audio(audio_path, label):
     """
     Melakukan preprocessing audio dengan menghitung fitur MFCC dari file audio.
     """
-    signal, sample_rate = librosa.load(audio_path)
+    signal, sample_rate = sf.read(audio_path)
     mfccs = librosa.feature.mfcc(y=signal, sr=sample_rate, n_mfcc=13)
     mfccs_mean = np.mean(mfccs, axis=1)
     return mfccs_mean, label
@@ -79,7 +81,7 @@ def load_data(path):
 
     return X, y
 
-def deploy_web_app(best_model):
+def deploy_web_app(best_model, X_test, y_test):
     """
     Mendeploy model terbaik ke dalam aplikasi web menggunakan Streamlit.
     """
@@ -90,22 +92,45 @@ def deploy_web_app(best_model):
 
     if audio_files is not None:
         for audio_file in audio_files:
-            signal, sample_rate = librosa.load(audio_file)
+            signal, sample_rate = sf.read(audio_file)
             mfccs = librosa.feature.mfcc(y=signal, sr=sample_rate, n_mfcc=13)
             mfccs_mean = np.mean(mfccs, axis=1)
             input_data = np.array([mfccs_mean])
             sentiment = "Positive" if np.argmax(best_model.predict(input_data)) == 0 else "Negative"
 
+            accuracy, precision, recall, f1 = evaluate_model(best_model, X_test, y_test)
             st.write("Hasil identifikasi sentimen:")
             st.write(f"File: {audio_file.name}")
             st.write(f"Sentimen: {sentiment}")
+            st.write(f"Akurasi: {accuracy}")
+            st.write(f"Presisi: {precision}")
+            st.write(f"Recall: {recall}")
+            st.write(f"F1-Score: {f1}")
             st.write("=========================================")
+
+            st.write("Cepstral Coefficients:")
+            for i, coef in enumerate(mfccs_mean):
+                st.write(f"MFCC {i+1}: {coef}")
+
+            st.write("MFCC Chart Analysis:")
+            plt.figure(figsize=(10, 4))
+            librosa.display.specshow(mfccs, x_axis='time')
+            plt.colorbar(format='%+2.0f dB')
+            plt.title('MFCC')
+            plt.xlabel('Time')
+            plt.ylabel('MFCC Coefficients')
+            st.pyplot(plt)
+
+            st.write("======================================================================================")
 
 def main(path):
     """
     Fungsi utama yang menjalankan alur aplikasi.
     """
-    X, y = load_data(path)
+    project_directory = r"C:\Master D\Semester 4 (Killing Machine)\Pengantar Pemrosesan Data Multimedia\FP-AudioJST"
+    audiosamples_directory = os.path.join(project_directory, "audiosamples")
+
+    X, y = load_data(os.path.join(audiosamples_directory, "*.wav"))
 
     num_classes = 2  # Jumlah kelas (positive sentiment dan negative sentiment)
     input_shape = (13,)  # Bentuk data input (fitur MFCC)
@@ -125,31 +150,45 @@ def main(path):
         hidden_neurons_list = [32, 64, 128]
         activations = ['sigmoid', 'softmax', 'tanh']
 
-        best_accuracy = 0
-        best_model = None
+        if os.path.exists('best_model.h5'):
+            # Load the saved model
+            best_model = load_model('best_model.h5')
+            deploy_web_app(best_model, X_test, y_test)
+        
+        else:
+            best_accuracy = 0
+            best_model = None
 
-        for lr in learning_rates:
-            for num_epochs in num_epochs_list:
-                for num_hidden_layers in hidden_layers_list:
-                    for num_hidden_neurons in hidden_neurons_list:
-                        for activation in activations:
-                            model = create_model(input_shape, num_classes, num_hidden_layers, num_hidden_neurons, activation)
-                            model = train_model(model, X_train, y_train, lr, num_epochs)
-                            accuracy, precision, recall, f1 = evaluate_model(model, X_test, y_test)
+            for lr in learning_rates:
+                for num_epochs in num_epochs_list:
+                    for num_hidden_layers in hidden_layers_list:
+                        for num_hidden_neurons in hidden_neurons_list:
+                            for activation in activations:
+                                model = create_model(input_shape, num_classes, num_hidden_layers, num_hidden_neurons, activation)
+                                model = train_model(model, X_train, y_train, lr, num_epochs)
+                                accuracy, precision, recall, f1 = evaluate_model(model, X_test, y_test)
 
-                            if accuracy > best_accuracy:
-                                best_accuracy = accuracy
-                                best_model = model
+                                if accuracy > best_accuracy:
+                                    best_accuracy = accuracy
+                                    best_model = model
 
-                            print(f"Learning Rate: {lr}, Epochs: {num_epochs}, Hidden Layers: {num_hidden_layers}, Hidden Neurons: {num_hidden_neurons}, Activation: {activation}")
-                            print(f"Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1-Score: {f1}")
-                            print("=========================================")
+                                print(f"Learning Rate: {lr}, Epochs: {num_epochs}, Hidden Layers: {num_hidden_layers}, Hidden Neurons: {num_hidden_neurons}, Activation: {activation}")
+                                print(f"Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1-Score: {f1}")
+                                print("=========================================")
+        
+            if best_model is not None:
+                # Save the best model to a file
+                save_model(best_model, 'best_model.h5')
 
-        deploy_web_app(best_model)
+                # Load the saved model
+                loaded_model = load_model('best_model.h5')
+
+                deploy_web_app(loaded_model, X_test, y_test)
+            else:
+                print("Error: Model terbaik tidak ditemukan.")
 
     else:
         print("Error: Data tidak cukup untuk dibagi menjadi data training dan data testing.")
 
 # Contoh penggunaan
-main('FP-AudioJST/audiosamples/*.wav')
-
+main('audiosamples/*.wav')
