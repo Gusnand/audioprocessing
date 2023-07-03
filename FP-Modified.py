@@ -116,13 +116,17 @@ def main(path):
     num_classes = 2  # Jumlah kelas (positive sentiment dan negative sentiment)
     input_shape = (13,)  # Bentuk data input (fitur MFCC)
 
-    num_test_samples = int(0.2*len(X))
-    test_size = num_test_samples / len(X)
+    num_samples = len(X)
+    num_test_samples = int(0.2*num_samples)
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size)
+    if num_samples > 0 and num_test_samples > 0:
+        test_size = num_test_samples / num_samples
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size)
+        y_train = to_categorical(y_train, num_classes)
+        y_test = to_categorical(y_test, num_classes)
     
-    y_train = to_categorical(y_train, num_classes)
-    y_test = to_categorical(y_test, num_classes)
+    else:
+        print("Error: Data tidak cukup untuk dibagi menjadi data training dan data testing.")
     
     learning_rates = [0.01, 0.001, 0.0001]
     num_epochs_list = [50, 100, 200]
