@@ -53,16 +53,19 @@ def evaluate_model(model, X_test, y_test):
 
     return accuracy, precision, recall, f1
 
-def preprocess_audio(audio_path, label):
+def preprocess_audio(audio_path, label, target_sample_rate):
     """
     Melakukan preprocessing audio dengan menghitung fitur MFCC dari file audio.
+    Mengubah sampling rate audio menjadi target_sample_rate.
     """
     signal, sample_rate = sf.read(audio_path)
-    mfccs = librosa.feature.mfcc(y=signal, sr=sample_rate, n_mfcc=13)
+    signal_resampled = librosa.resample(y=signal, orig_sr=sample_rate, target_sr=target_sample_rate)
+    signal_normalized = librosa.util.normalize(signal_resampled)
+    mfccs = librosa.feature.mfcc(y=signal_normalized, sr=target_sample_rate, n_mfcc=13)
     mfccs_mean = np.mean(mfccs, axis=1)
     return mfccs_mean, label
 
-def load_data(path):
+def load_data(path, target_sample_rate):
     """
     Memuat data audio dari file .wav sesuai dengan path yang diberikan.
     """
@@ -71,17 +74,22 @@ def load_data(path):
     y = []
 
     for audio_file in audio_files:
-        label = 0 if 'happy' in audio_file else 1
-        mfccs_mean, label = preprocess_audio(audio_file, label)
+        signal, sample_rate = sf.read(audio_file)
+        signal_resampled = librosa.resample(y=signal, orig_sr=sample_rate, target_sr=target_sample_rate)
+        signal_normalized = librosa.util.normalize(signal_resampled)
+        mfccs = librosa.feature.mfcc(y=signal_normalized, sr=target_sample_rate, n_mfcc=13)
+        mfccs_mean = np.mean(mfccs, axis=1)
         X.append(mfccs_mean)
-        y.append(label)
+        y.append(0 if 'happy' in audio_file else 1)
 
     X = np.array(X)
     y = np.array(y)
 
     return X, y
 
-def deploy_web_app(best_model, X_test, y_test):
+
+
+def deploy_web_app(best_model, X_test, y_test, target_sample_rate):
     """
     Mendeploy model terbaik ke dalam aplikasi web menggunakan Streamlit.
     """
@@ -93,7 +101,9 @@ def deploy_web_app(best_model, X_test, y_test):
     if audio_files is not None:
         for audio_file in audio_files:
             signal, sample_rate = sf.read(audio_file)
-            mfccs = librosa.feature.mfcc(y=signal, sr=sample_rate, n_mfcc=13)
+            signal_resampled = librosa.resample(y=signal, orig_sr=sample_rate, target_sr=target_sample_rate)
+            signal_normalized = librosa.util.normalize(signal_resampled)
+            mfccs = librosa.feature.mfcc(y=signal_normalized, sr=target_sample_rate, n_mfcc=13)
             mfccs_mean = np.mean(mfccs, axis=1)
             input_data = np.array([mfccs_mean])
             sentiment = "Positive" if np.argmax(best_model.predict(input_data)) == 0 else "Negative"
@@ -123,14 +133,14 @@ def deploy_web_app(best_model, X_test, y_test):
 
             st.write("======================================================================================")
 
-def main(path):
+def main(path, target_sample_rate):
     """
     Fungsi utama yang menjalankan alur aplikasi.
     """
     project_directory = r"C:\Master D\Semester 4 (Killing Machine)\Pengantar Pemrosesan Data Multimedia\FP-AudioJST"
     audiosamples_directory = os.path.join(project_directory, "audiosamples")
 
-    X, y = load_data(os.path.join(audiosamples_directory, "*.wav"))
+    X, y = load_data(os.path.join(audiosamples_directory, "*.wav"), target_sample_rate)
 
     num_classes = 2  # Jumlah kelas (positive sentiment dan negative sentiment)
     input_shape = (13,)  # Bentuk data input (fitur MFCC)
@@ -153,7 +163,7 @@ def main(path):
         if os.path.exists('best_model.h5'):
             # Load the saved model
             best_model = load_model('best_model.h5')
-            deploy_web_app(best_model, X_test, y_test)
+            deploy_web_app(best_model, X_test, y_test, target_sample_rate)
         
         else:
             best_accuracy = 0
@@ -183,7 +193,7 @@ def main(path):
                 # Load the saved model
                 loaded_model = load_model('best_model.h5')
 
-                deploy_web_app(loaded_model, X_test, y_test)
+                deploy_web_app(loaded_model, X_test, y_test, target_sample_rate)
             else:
                 print("Error: Model terbaik tidak ditemukan.")
 
@@ -191,4 +201,4 @@ def main(path):
         print("Error: Data tidak cukup untuk dibagi menjadi data training dan data testing.")
 
 # Contoh penggunaan
-main('audiosamples/*.wav')
+main('audiosamples/*.wav', 44100)  # Set the target sampling rate to 44100 Hz
